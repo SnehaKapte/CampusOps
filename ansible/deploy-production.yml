@@ -1,0 +1,114 @@
+---
+# ═══════════════════════════════════════════════════════
+# CampusOps — Production Deployment Playbook
+# Requires manual Jenkins approval before running
+# Usage: ansible-playbook ansible/deploy-production.yml -i ansible/inventory/production -e image_tag=47
+# ═══════════════════════════════════════════════════════
+
+- name: Deploy CampusOps to Production
+  hosts: campus_production
+  become: yes
+  serial: 1           # Deploy one server at a time (rolling update)
+  gather_facts: yes
+
+  vars:
+    docker_registry: "registry.campusops.local"
+    app_dir: "/opt/campusops"
+    deploy_user: "deploy"
+    api_image: "{{ docker_registry }}/campusops-api:{{ image_tag }}"
+    web_image: "{{ docker_registry }}/campusops-web:{{ image_tag }}"
+
+  pre_tasks:
+    - name: Pre-deployment announcement
+      debug:
+        msg: "🚀 Deploying CampusOps build #{{ image_tag }} to PRODUCTION on {{ inventory_hostname }}"
+
+  tasks:
+
+    # ── Pull new Docker images ────────────────────────────
+    - name: Pull API image
+      docker_image:
+        name: "{{ api_image }}"
+        source: pull
+        force_source: yes
+
+    - name: Pull Web image
+      docker_image:
+        name: "{{ web_image }}"
+        source: pull
+        force_source: yes
+
+    # ── Backup current docker-compose state ───────────────
+    - name: Backup current deployment state
+      shell: |
+        cd {{ app_dir }}
+        docker-compose ps > /tmp/campusops_pre_deploy_state.txt 2>&1
+      ignore_errors: yes
+
+    # ── Write production .env ─────────────────────────────
+    - name: Write production environment file
+      copy:
+        dest: "{{ app_dir }}/.env"
+        owner: "{{ deploy_user }}"
+        mode: '0600'
+        content: |
+          API_IMAGE_TAG={{ image_tag }}
+          WEB_IMAGE_TAG={{ image_tag }}
+          NODE_ENV=production
+          JWT_SECRET={{ jwt_secret }}
+          MONGO_URI=mongodb://db:27017/campusops
+
+    # ── Rolling update ────────────────────────────────────
+    - name: Pull and recreate API container only
+      shell: >
+        cd {{ app_dir }} &&
+        API_IMAGE_TAG={{ image_tag }}
+        WEB_IMAGE_TAG={{ image_tag }}
+        docker-compose up -d --no-deps api
+      become_user: "{{ deploy_user }}"
+
+    - name: Wait for API to be healthy after update
+      uri:
+        url: "http://localhost:5000/health"
+        status_code: 200
+      retries: 8
+      delay: 10
+      until: health_check.status == 200
+      register: health_check
+
+    - name: Update web container
+      shell: >
+        cd {{ app_dir }} &&
+        API_IMAGE_TAG={{ image_tag }}
+        WEB_IMAGE_TAG={{ image_tag }}
+        docker-compose up -d --no-deps web
+      become_user: "{{ deploy_user }}"
+
+    - name: Reload Nginx
+      shell: "docker-compose exec -T nginx nginx -s reload"
+      args:
+        chdir: "{{ app_dir }}"
+      become_user: "{{ deploy_user }}"
+      ignore_errors: yes
+
+    # ── Verify deployment ─────────────────────────────────
+    - name: Final health check
+      uri:
+        url: "http://localhost/health"
+        status_code: 200
+        return_content: yes
+      register: final_check
+
+    - name: Log successful deployment
+      shell: |
+        echo "$(date): Deployed build #{{ image_tag }} to {{ inventory_hostname }}" >> {{ app_dir }}/logs/deployments.log
+      ignore_errors: yes
+
+    - name: Cleanup old Docker images
+      shell: docker image prune -f
+      ignore_errors: yes
+
+  post_tasks:
+    - name: Post-deployment summary
+      debug:
+        msg: "✅ Production deployment of build #{{ image_tag }} complete on {{ inventory_hostname }}"

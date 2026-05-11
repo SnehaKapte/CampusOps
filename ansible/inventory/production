@@ -1,0 +1,23 @@
+# ansible/inventory/production
+# Replace IP addresses with your actual production server IPs
+
+[webservers]
+prod-web-01 ansible_host=10.0.1.10 ansible_user=deploy ansible_ssh_private_key_file=~/.ssh/campusops_deploy
+prod-web-02 ansible_host=10.0.1.11 ansible_user=deploy ansible_ssh_private_key_file=~/.ssh/campusops_deploy
+
+[appservers]
+prod-api-01 ansible_host=10.0.1.20 ansible_user=deploy ansible_ssh_private_key_file=~/.ssh/campusops_deploy
+prod-api-02 ansible_host=10.0.1.21 ansible_user=deploy ansible_ssh_private_key_file=~/.ssh/campusops_deploy
+
+[dbservers]
+prod-db-01  ansible_host=10.0.1.30 ansible_user=deploy ansible_ssh_private_key_file=~/.ssh/campusops_deploy
+
+[campus_production:children]
+webservers
+appservers
+dbservers
+
+[campus_production:vars]
+ansible_python_interpreter=/usr/bin/python3
+env=production
+app_dir=/opt/campusops

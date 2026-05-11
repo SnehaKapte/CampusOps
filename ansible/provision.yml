@@ -1,0 +1,167 @@
+---
+# ═══════════════════════════════════════════════════════
+# CampusOps — Server Provisioning Playbook
+# Run once on fresh servers to install all dependencies
+# Usage: ansible-playbook ansible/provision.yml -i ansible/inventory/production
+# ═══════════════════════════════════════════════════════
+
+- name: Provision CampusOps Servers
+  hosts: all
+  become: yes
+  gather_facts: yes
+
+  vars:
+    node_version: "20"
+    docker_compose_version: "2.23.3"
+    app_dir: "/opt/campusops"
+    deploy_user: "deploy"
+
+  tasks:
+
+    # ── System updates ───────────────────────────────────
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install system packages
+      apt:
+        name:
+          - curl
+          - wget
+          - git
+          - unzip
+          - htop
+          - ufw
+          - fail2ban
+          - python3-pip
+        state: present
+
+    # ── Create deploy user ────────────────────────────────
+    - name: Create deploy group
+      group:
+        name: "{{ deploy_user }}"
+        state: present
+
+    - name: Create deploy user
+      user:
+        name: "{{ deploy_user }}"
+        group: "{{ deploy_user }}"
+        groups: docker
+        shell: /bin/bash
+        create_home: yes
+        state: present
+
+    - name: Add SSH key for deploy user
+      authorized_key:
+        user: "{{ deploy_user }}"
+        state: present
+        key: "{{ lookup('file', '~/.ssh/campusops_deploy.pub') }}"
+
+    # ── Install Docker ────────────────────────────────────
+    - name: Add Docker GPG key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Add Docker repository
+      apt_repository:
+        repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+        state: present
+
+    - name: Install Docker CE
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+        state: present
+        update_cache: yes
+
+    - name: Start and enable Docker service
+      service:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Install Docker Compose plugin
+      get_url:
+        url: "https://github.com/docker/compose/releases/download/v{{ docker_compose_version }}/docker-compose-linux-x86_64"
+        dest: /usr/local/bin/docker-compose
+        mode: '0755'
+
+    # ── Configure Firewall ────────────────────────────────
+    - name: Allow SSH
+      ufw:
+        rule: allow
+        port: "22"
+        proto: tcp
+
+    - name: Allow HTTP
+      ufw:
+        rule: allow
+        port: "80"
+        proto: tcp
+
+    - name: Allow HTTPS
+      ufw:
+        rule: allow
+        port: "443"
+        proto: tcp
+
+    - name: Enable UFW
+      ufw:
+        state: enabled
+        policy: deny
+        direction: incoming
+
+    # ── Create application directory ──────────────────────
+    - name: Create app directory
+      file:
+        path: "{{ app_dir }}"
+        state: directory
+        owner: "{{ deploy_user }}"
+        group: "{{ deploy_user }}"
+        mode: '0755'
+
+    - name: Create logs directory
+      file:
+        path: "{{ app_dir }}/logs"
+        state: directory
+        owner: "{{ deploy_user }}"
+        group: "{{ deploy_user }}"
+        mode: '0755'
+
+    # ── Configure systemd service ─────────────────────────
+    - name: Create CampusOps systemd service
+      copy:
+        dest: /etc/systemd/system/campusops.service
+        content: |
+          [Unit]
+          Description=CampusOps Smart Campus Platform
+          Requires=docker.service
+          After=docker.service
+
+          [Service]
+          User={{ deploy_user }}
+          WorkingDirectory={{ app_dir }}
+          ExecStart=/usr/local/bin/docker-compose up
+          ExecStop=/usr/local/bin/docker-compose down
+          Restart=on-failure
+          RestartSec=10
+
+          [Install]
+          WantedBy=multi-user.target
+        mode: '0644'
+
+    - name: Enable CampusOps service
+      systemd:
+        name: campusops
+        enabled: yes
+        daemon_reload: yes
+
+  handlers:
+    - name: restart docker
+      service:
+        name: docker
+        state: restarted

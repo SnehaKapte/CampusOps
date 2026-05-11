@@ -1,0 +1,16 @@
+{
+  "name": "campusops",
+  "version": "1.0.0",
+  "description": "Smart Campus Infrastructure Automation Platform",
+  "scripts": {
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "server": "npm run dev --prefix server",
+    "client": "npm start --prefix client",
+    "install:all": "npm install && npm install --prefix server && npm install --prefix client",
+    "test": "npm test --prefix server && npm test --prefix client -- --watchAll=false",
+    "build": "npm run build --prefix client"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

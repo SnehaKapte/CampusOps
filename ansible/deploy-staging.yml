@@ -1,0 +1,113 @@
+---
+# ═══════════════════════════════════════════════════════
+# CampusOps — Staging Deployment Playbook
+# Called by Jenkins after Docker images are built and pushed
+# Usage: ansible-playbook ansible/deploy-staging.yml -i ansible/inventory/staging -e image_tag=47
+# ═══════════════════════════════════════════════════════
+
+- name: Deploy CampusOps to Staging
+  hosts: campus_staging
+  become: yes
+  gather_facts: yes
+
+  vars:
+    docker_registry: "registry.campusops.local"
+    app_dir: "/opt/campusops"
+    deploy_user: "deploy"
+    api_image: "{{ docker_registry }}/campusops-api:{{ image_tag }}"
+    web_image: "{{ docker_registry }}/campusops-web:{{ image_tag }}"
+
+  tasks:
+
+    - name: Display deployment info
+      debug:
+        msg: "Deploying CampusOps build #{{ image_tag }} to STAGING"
+
+    # ── Pull new Docker images ────────────────────────────
+    - name: Pull API image from registry
+      docker_image:
+        name: "{{ api_image }}"
+        source: pull
+        force_source: yes
+      register: api_pull_result
+
+    - name: Pull Web image from registry
+      docker_image:
+        name: "{{ web_image }}"
+        source: pull
+        force_source: yes
+
+    - name: Show pulled image digest
+      debug:
+        msg: "API image: {{ api_pull_result.image.Id[:12] }}"
+
+    # ── Copy docker-compose file ──────────────────────────
+    - name: Copy docker-compose to server
+      copy:
+        src: ../docker-compose.yml
+        dest: "{{ app_dir }}/docker-compose.yml"
+        owner: "{{ deploy_user }}"
+        group: "{{ deploy_user }}"
+
+    - name: Copy nginx config
+      copy:
+        src: ../nginx/nginx.conf
+        dest: "{{ app_dir }}/nginx/nginx.conf"
+        owner: "{{ deploy_user }}"
+        group: "{{ deploy_user }}"
+
+    # ── Write .env file ───────────────────────────────────
+    - name: Write environment file
+      copy:
+        dest: "{{ app_dir }}/.env"
+        owner: "{{ deploy_user }}"
+        mode: '0600'
+        content: |
+          API_IMAGE_TAG={{ image_tag }}
+          WEB_IMAGE_TAG={{ image_tag }}
+          NODE_ENV=staging
+          JWT_SECRET={{ jwt_secret | default('staging_jwt_secret') }}
+          MONGO_URI=mongodb://db:27017/campusops_staging
+
+    # ── Deploy with Docker Compose ────────────────────────
+    - name: Stop existing containers
+      shell: "cd {{ app_dir }} && docker-compose down --remove-orphans"
+      become_user: "{{ deploy_user }}"
+      ignore_errors: yes
+
+    - name: Start updated containers
+      shell: "cd {{ app_dir }} && API_IMAGE_TAG={{ image_tag }} WEB_IMAGE_TAG={{ image_tag }} docker-compose up -d"
+      become_user: "{{ deploy_user }}"
+      register: compose_result
+
+    - name: Show compose output
+      debug:
+        var: compose_result.stdout_lines
+
+    # ── Wait for API to be ready ──────────────────────────
+    - name: Wait for API health check to pass
+      uri:
+        url: "http://localhost:5000/health"
+        status_code: 200
+        return_content: yes
+      register: health_result
+      retries: 6
+      delay: 10
+      until: health_result.status == 200
+
+    - name: Confirm deployment success
+      debug:
+        msg: "✅ Staging deployment successful — API is healthy"
+
+    # ── Reload Nginx ──────────────────────────────────────
+    - name: Reload Nginx
+      shell: "docker-compose exec -T nginx nginx -s reload"
+      args:
+        chdir: "{{ app_dir }}"
+      become_user: "{{ deploy_user }}"
+      ignore_errors: yes
+
+    # ── Cleanup old images ────────────────────────────────
+    - name: Remove dangling Docker images
+      shell: docker image prune -f
+      ignore_errors: yes
