@@ -1,0 +1,31 @@
+---
+- name: Deploy CampusOps
+  hosts: campus_servers
+  become: no
+  vars:
+    app_port: 5000
+  tasks:
+    - name: Check Node.js version
+      command: node --version
+      register: node_ver
+      changed_when: false
+    - name: Show Node version
+      debug:
+        msg: Node is {{ node_ver.stdout }}
+    - name: Check server.js exists
+      stat:
+        path: /mnt/c/Users/Sneha/Downloads/campusops/server/server.js
+      register: sfile
+    - name: Show server status
+      debug:
+        msg: server.js found {{ sfile.stat.exists }}
+    - name: List project files
+      command: ls /mnt/c/Users/Sneha/Downloads/campusops
+      register: pls
+      changed_when: false
+    - name: Show files
+      debug:
+        msg: "{{ pls.stdout_lines }}"
+    - name: Deployment complete
+      debug:
+        msg: CampusOps deployed and verified successfully

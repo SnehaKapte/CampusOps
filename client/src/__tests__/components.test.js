@@ -14,7 +14,10 @@ describe('MetricCard', () => {
 
   test('renders trend text', () => {
     render(<MetricCard label="Test" value={99} trend="up" trendText="+5% this week" />);
-    expect(screen.getByText('+5% this week')).toBeInTheDocument();
+    // trend arrow and text may be in same element — use container query
+    const trendEl = document.querySelector('.metric-trend');
+    expect(trendEl).not.toBeNull();
+    expect(trendEl.textContent).toContain('+5% this week');
   });
 
   test('renders without trend', () => {
