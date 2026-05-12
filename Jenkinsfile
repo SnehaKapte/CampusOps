@@ -35,8 +35,8 @@ pipeline {
         stage('Checkout') {
             steps {
                 git branch: "${env.BRANCH_NAME ?: 'main'}",
-                    url: 'https://github.com/your-org/campusops.git',
-                    credentialsId: 'github-credentials'
+                    url: 'https://github.com/your-org/CampusOps.git',
+                    
 
                 script {
                     env.GIT_SHORT_COMMIT = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
@@ -246,19 +246,19 @@ pipeline {
     post {
         success {
             echo "✅ Pipeline succeeded — Build #${BUILD_NUMBER}"
-            slackSend(
-                channel: env.SLACK_CHANNEL,
-                color:   'good',
-                message: "✅ CampusOps Build #${BUILD_NUMBER} deployed successfully\nCommit: ${env.GIT_SHORT_COMMIT} by ${env.GIT_AUTHOR}\nBranch: ${env.BRANCH_NAME}"
-            )
+            //slackSend(
+               // channel: env.SLACK_CHANNEL,
+                //color:   'good',
+                //message: "✅ CampusOps Build #${BUILD_NUMBER} deployed successfully\nCommit: ${env.GIT_SHORT_COMMIT} by ${env.GIT_AUTHOR}\nBranch: ${env.BRANCH_NAME}"
+            //)
         }
         failure {
             echo "❌ Pipeline FAILED — Build #${BUILD_NUMBER}"
-            slackSend(
-                channel: env.SLACK_CHANNEL,
-                color:   'danger',
-                message: "❌ CampusOps Build #${BUILD_NUMBER} FAILED\nCommit: ${env.GIT_SHORT_COMMIT}\nCheck: ${env.BUILD_URL}"
-            )
+            //slackSend(
+                //channel: env.SLACK_CHANNEL,
+                //color:   'danger',
+              //  message: "❌ CampusOps Build #${BUILD_NUMBER} FAILED\nCommit: ${env.GIT_SHORT_COMMIT}\nCheck: ${env.BUILD_URL}"
+            //)
         }
         always {
             cleanWs()
