@@ -34,10 +34,9 @@ pipeline {
         // ─── Stage 1: Checkout ────────────────────────────────
         stage('Checkout') {
             steps {
-                git branch: "${env.BRANCH_NAME ?: 'main'}",
-                    url: 'https://github.com/your-org/CampusOps.git',
+                git url: 'https://github.com/SnehaKapte/CampusOps.git',
+                    branch: 'main'
                     
-
                 script {
                     env.GIT_SHORT_COMMIT = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
                     env.GIT_AUTHOR      = sh(script: 'git log -1 --format="%an"',   returnStdout: true).trim()
